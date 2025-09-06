@@ -1,0 +1,8 @@
+streamlit
+langchain
+langchain-community
+sentence-transformers
+torch
+chromadb
+PyPDF2
+docx2txt
