@@ -6,3 +6,4 @@ torch
 chromadb
 PyPDF2
 docx2txt
+pypdf      # recommended: fixes PDF errors in many cases

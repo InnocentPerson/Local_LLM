@@ -3,58 +3,174 @@ import os
 import streamlit as st
 import torch
 
-# ✅ Updated imports to avoid deprecation warnings
+# PDF / DOCX reading
+from pypdf import PdfReader   # ✅ More reliable than PyPDF2
+import docx2txt
+
+# LangChain imports
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain.chains import RetrievalQA
 from langchain_community.llms import Ollama
-from PyPDF2 import PdfReader
-import docx2txt
 
-# ✅ Set Chroma DB path on D: to save C: space
+
+# -----------------------------------------------------------
+# ✅ SETTINGS
+# -----------------------------------------------------------
+
 DB_PATH = "D:/OLLAMA_MAIN/db"
-
-# ✅ Force CPU if CUDA not available
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 st.write(f"📌 Running on: **{DEVICE.upper()}**")
 
-# Step 1. File uploader
-uploaded_file = st.file_uploader("Upload a file", type=["txt", "pdf", "docx"])
-if uploaded_file:
+
+# -----------------------------------------------------------
+# 🔥 HELPER FUNCTIONS
+# -----------------------------------------------------------
+
+def load_text_from_file(uploaded_file):
+    """Reads text from PDF, TXT, DOCX."""
     file_type = uploaded_file.name.split(".")[-1].lower()
 
-    # Step 2. Read file
     if file_type == "txt":
         text = uploaded_file.read().decode("utf-8", errors="ignore")
+
     elif file_type == "pdf":
         pdf = PdfReader(uploaded_file)
-        text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+        pages = [page.extract_text() or "" for page in pdf.pages]
+        text = "\n".join(pages)
+
     elif file_type == "docx":
         text = docx2txt.process(uploaded_file)
+
     else:
         st.error("Unsupported file type!")
         st.stop()
 
-    # Step 3. Split into chunks
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    # ❗ Important: Detect unreadable PDF (scanned)
+    if len(text.strip()) == 0:
+        st.error("❌ No readable text found! This PDF may be scanned or image-based.")
+        st.stop()
+
+    return text
+
+
+def split_into_chunks(text):
+    """Splits text into manageable 1000-character chunks."""
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200
+    )
     chunks = splitter.split_text(text)
 
-    # Step 4. Create Chroma DB (persistent on D:)
+    # Remove empty chunks
+    chunks = [c for c in chunks if c.strip()]
+
+    if len(chunks) == 0:
+        st.error("❌ No chunks could be created. Document may be empty.")
+        st.stop()
+
+    return chunks
+
+
+def create_vector_db(chunks):
+    """Creates Chroma DB with correct embedding model and safe checks."""
+
     embeddings = HuggingFaceEmbeddings(
-        model_name="all-MiniLM-L6-v2",
-        model_kwargs={"device": DEVICE}  # ✅ Force CPU/GPU here
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={"device": "cpu"}  # safer & prevents CUDA issues
     )
-    db = Chroma.from_texts(chunks, embedding=embeddings, persist_directory=DB_PATH)
 
-    # Step 5. Build QA system
-    llm = Ollama(model="mistral")
-    qa = RetrievalQA.from_chain_type(llm, retriever=db.as_retriever())
+    # 🔍 EMBEDDING TEST (super important)
+    st.write("🔍 Testing embeddings…")
 
-    # Step 6. Ask questions
-    st.title("📚 Chat with My File")
-    user_q = st.text_input("Ask a question:")
-    if st.button("Submit") and user_q:
-        with st.spinner("Thinking..."):
-            answer = qa.run(user_q)
-        st.success(answer)
+    try:
+        test_vec = embeddings.embed_documents([chunks[0]])  # embed 1 chunk
+        if len(test_vec) == 0:
+            st.error("❌ Embedding model returned empty vectors!")
+            st.stop()
+        st.write(f"✔ Embedding OK — vector size = {len(test_vec[0])}")
+    except Exception as e:
+        st.error(f"❌ Embedding generation failed: {e}")
+        st.stop()
+
+    # Delete old DB to avoid corruption
+    if os.path.exists(DB_PATH):
+        import shutil
+        shutil.rmtree(DB_PATH)
+
+    # Build vector DB
+    db = Chroma.from_texts(
+        texts=chunks,
+        embedding=embeddings,
+        persist_directory=DB_PATH
+    )
+
+    return db
+
+
+def build_qa_chain(db):
+    """Creates QA chain using Ollama."""
+    llm = Ollama(model="mistral", temperature=0.3)
+
+    qa = RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=db.as_retriever(),
+        return_source_documents=False
+    )
+    return qa
+
+
+# -----------------------------------------------------------
+# 🚀 STREAMLIT UI
+# -----------------------------------------------------------
+
+st.title("📚 Chat With Your File (Local LLM + ChromaDB)")
+st.write("Upload a document and ask anything about it!")
+
+uploaded_file = st.file_uploader("Upload PDF / TXT / DOCX", type=["txt", "pdf", "docx"])
+
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+
+if uploaded_file:
+
+    # STEP 1: READ FILE
+    text = load_text_from_file(uploaded_file)
+
+    # STEP 2: SPLIT INTO CHUNKS
+    chunks = split_into_chunks(text)
+    st.success(f"📌 Document split into **{len(chunks)} chunks**")
+
+    # STEP 3: CREATE VECTOR DB
+    with st.spinner("🔧 Creating vector database..."):
+        db = create_vector_db(chunks)
+
+    # STEP 4: INIT QA SYSTEM
+    with st.spinner("🤖 Initializing AI model..."):
+        qa = build_qa_chain(db)
+
+    # STEP 5: CHAT UI
+    st.subheader("💬 Ask Questions About Your Document")
+
+    user_q = st.text_input("Your question:")
+
+    if st.button("Submit"):
+        if user_q:
+            with st.spinner("Thinking..."):
+                answer = qa.run(user_q)
+
+            st.session_state.history.append(("🧑 You", user_q))
+            st.session_state.history.append(("🤖 AI", answer))
+
+            st.success(answer)
+
+    # STEP 6: DISPLAY CHAT HISTORY
+    if st.session_state.history:
+        st.subheader("📜 Chat History")
+        for sender, msg in st.session_state.history:
+            st.markdown(f"**{sender}:** {msg}")
+
+else:
+    st.info("📄 Upload a file to begin.")
