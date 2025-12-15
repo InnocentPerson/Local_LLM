@@ -1,10 +1,11 @@
 # app.py
 import os
+import uuid
 import streamlit as st
 import torch
 
 # PDF / DOCX reading
-from pypdf import PdfReader   # ✅ More reliable than PyPDF2
+from pypdf import PdfReader   # More reliable than PyPDF2
 import docx2txt
 
 # LangChain imports
@@ -19,7 +20,8 @@ from langchain_community.llms import Ollama
 # ✅ SETTINGS
 # -----------------------------------------------------------
 
-DB_PATH = "D:/OLLAMA_MAIN/db"
+DB_BASE_PATH = "D:/OLLAMA_MAIN/db"
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 st.write(f"📌 Running on: **{DEVICE.upper()}**")
 
@@ -47,7 +49,6 @@ def load_text_from_file(uploaded_file):
         st.error("Unsupported file type!")
         st.stop()
 
-    # ❗ Important: Detect unreadable PDF (scanned)
     if len(text.strip()) == 0:
         st.error("❌ No readable text found! This PDF may be scanned or image-based.")
         st.stop()
@@ -63,7 +64,6 @@ def split_into_chunks(text):
     )
     chunks = splitter.split_text(text)
 
-    # Remove empty chunks
     chunks = [c for c in chunks if c.strip()]
 
     if len(chunks) == 0:
@@ -74,36 +74,33 @@ def split_into_chunks(text):
 
 
 def create_vector_db(chunks):
-    """Creates Chroma DB with correct embedding model and safe checks."""
+    """Creates Chroma DB with safe unique folder (avoids WinError 32)."""
 
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={"device": "cpu"}  # safer & prevents CUDA issues
+        model_kwargs={"device": "cpu"}  # safer and stable
     )
 
-    # 🔍 EMBEDDING TEST (super important)
+    # 🔍 Test embedding
     st.write("🔍 Testing embeddings…")
-
     try:
-        test_vec = embeddings.embed_documents([chunks[0]])  # embed 1 chunk
-        if len(test_vec) == 0:
-            st.error("❌ Embedding model returned empty vectors!")
-            st.stop()
+        test_vec = embeddings.embed_documents([chunks[0]])
         st.write(f"✔ Embedding OK — vector size = {len(test_vec[0])}")
     except Exception as e:
         st.error(f"❌ Embedding generation failed: {e}")
         st.stop()
 
-    # Delete old DB to avoid corruption
-    if os.path.exists(DB_PATH):
-        import shutil
-        shutil.rmtree(DB_PATH)
+    # 🔥 Create unique session folder to avoid file lock issues
+    unique_db_path = os.path.join(DB_BASE_PATH, f"session_{uuid.uuid4()}")
+    os.makedirs(unique_db_path, exist_ok=True)
 
-    # Build vector DB
+    st.write(f"📁 Using DB folder: {unique_db_path}")
+
+    # Create vector DB
     db = Chroma.from_texts(
         texts=chunks,
         embedding=embeddings,
-        persist_directory=DB_PATH
+        persist_directory=unique_db_path
     )
 
     return db
