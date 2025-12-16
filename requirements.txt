@@ -1,14 +1,15 @@
+# UI
 streamlit==1.32.2
 
-# LangChain (compatible set)
+# LangChain (RAG orchestration)
 langchain==0.1.16
 langchain-community==0.0.36
 
-# Embeddings
+# Embeddings (uses PyTorch internally)
 sentence-transformers==2.2.2
 torch==2.1.2
 
-# Vector DB
+# Vector Database
 chromadb==0.4.24
 
 # Document parsing
@@ -17,18 +18,4 @@ docx2txt==0.8
 
 # Utilities
 python-dotenv==1.0.1
-streamlit==1.32.2
-
-langchain==0.1.16
-langchain-community==0.0.36
-
-sentence-transformers==2.2.2
-torch==2.1.2
-
-chromadb==0.4.24
-
-pypdf==4.2.0
-docx2txt==0.8
-
 huggingface_hub==0.14.1
-python-dotenv==1.0.1
