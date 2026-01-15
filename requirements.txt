@@ -1,13 +1,23 @@
+# Tells pip where to look for the GPU versions first
+
+# 1)--extra-index-url ...: This line tells pip: "Don't just look at the standard library. Look at the NVIDIA server too."
+
+# 2) +cu124: This tells pip: "I don't want just any '2.6.0'. I specifically want the version built for CUDA 12.4."
+--extra-index-url https://download.pytorch.org/whl/cu124
+
 # UI
 streamlit==1.32.2
 
-# LangChain (RAG orchestration)
+# LangChain
 langchain==0.1.16
 langchain-community==0.0.36
 
-# Embeddings (uses PyTorch internally)
+# Embeddings & GPU Logic
 sentence-transformers==2.2.2
-torch==2.1.2
+# These are the exact GPU versions you just installed
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124
+torchaudio==2.6.0+cu124
 
 # Vector Database
 chromadb==0.4.24
@@ -19,3 +29,7 @@ docx2txt==0.8
 # Utilities
 python-dotenv==1.0.1
 huggingface_hub==0.14.1
+
+# Image OCR
+pytesseract==0.3.10
+Pillow==10.2.0
