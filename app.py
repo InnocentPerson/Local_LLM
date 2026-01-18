@@ -21,13 +21,25 @@ from langchain.chains import ConversationalRetrievalChain
 # ✅ SETTINGS & GPU SETUP
 # -----------------------------------------------------------
 
-# ⚠️ WINDOWS USERS: If Tesseract is not in your PATH, uncomment and set this:
-pytesseract.pytesseract.tesseract_cmd = r'D:\tesseract(img OCR)\tesseract.exe'
+# 1. SMART TESSERACT PATH 
+# If running on Windows (nt), use your D: drive path.
+# If running on Docker (posix), use the default Linux path.
+if os.name == 'nt':
+    pytesseract.pytesseract.tesseract_cmd = r'D:\tesseract(img OCR)\tesseract.exe'
+else:
+    pytesseract.pytesseract.tesseract_cmd = 'tesseract'
+
+# 2. SMART OLLAMA URL
+# Docker containers cannot see "localhost" directly. They need a special bridge.
+# If running in Docker (we will set an env variable later), use the bridge address.
+if os.getenv('IS_DOCKER'):
+    OLLAMA_URL = "http://host.docker.internal:11434"
+else:
+    OLLAMA_URL = "http://localhost:11434"
 
 DB_BASE_PATH = "./db"
 os.makedirs(DB_BASE_PATH, exist_ok=True)
 
-# Detect GPU
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 st.set_page_config(page_title="Chat With File", layout="wide")
@@ -98,7 +110,9 @@ def create_vector_db(chunks):
     return db
 
 def build_qa_chain(db):
-    llm = Ollama(model="mistral", temperature=0.3)
+    # Pass the smart URL here
+    llm = Ollama(model="mistral", temperature=0.3, base_url=OLLAMA_URL)
+    # ... rest of the function remains the same ...
 
     memory = ConversationBufferMemory(
         memory_key="chat_history",
